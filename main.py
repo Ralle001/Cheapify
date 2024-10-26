@@ -8,6 +8,24 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, ElementClickInterceptedException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 
+class Flight:
+    def __init__(self, idx, departure_time, arrival_time, courier, length, stop, price):
+        self.idx = idx
+        self.departure_time = departure_time
+        self.arrival_time = arrival_time
+        self.courier = courier
+        self.length = length
+        self.stop = stop
+        self.price = price
+
+    def print_all(self):
+        print(self.departure_time + " - " + self.arrival_time + " : " + self.courier + " - " + self.length + " - " + self.stop + " - " + self.price)
+
+class Trip:
+    def __init__(self, departure_flight, possible_return_flights):
+        self.departure_flight = departure_flight
+        self.possible_return_flights = possible_return_flights
+
 def get_flight_prices(origin, destination, departure_date, return_date=None):
     # Set up Chrome options to try and bypass GPU and rendering issues
     chrome_options = Options()
@@ -15,6 +33,7 @@ def get_flight_prices(origin, destination, departure_date, return_date=None):
     chrome_options.add_argument("--disable-gpu")  # Disable GPU to avoid rendering issues
     chrome_options.add_argument("--disable-software-rasterizer")  # Disable software rasterizer
     chrome_options.add_argument("--use-gl=swiftshader")  # Use SwiftShader for software-based rendering
+    chrome_options.add_argument("--headless")  # Headless mode
     chrome_options.add_experimental_option("prefs", {"profile.default_content_setting_values.cookies": 2})  # Disable cookies
 
     # Initialize the Chrome driver with the specified options
@@ -166,8 +185,78 @@ def get_flight_prices(origin, destination, departure_date, return_date=None):
         li_texts = [li.text for li in li_elements]
 
         # Print out the text from each <li> element
+        departing_flights_list = []
         for idx, text in enumerate(li_texts):
-            print(f"Item {idx + 1}: {text}")
+            temp = ""
+            temp_list = []
+            idx = 0
+            for i in text:
+                temp = temp + i
+                if i == '\n':
+                    temp_list.append(temp)
+                    temp = ""
+            departing_flights_list.append(Flight(idx, temp_list[0].strip(), temp_list[2].strip(), temp_list[3].strip(), temp_list[4].strip(), temp_list[6].strip(), temp_list[9].strip()))
+            idx = idx + 1
+            
+        try:
+            # Locate the specific flight element to click on (using the given class name and attributes)
+            flight_to_click = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//div[contains(@class, 'JMc5Xc') and @role='link']"))
+            )
+
+            # Scroll to the element to make sure it is in view
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", flight_to_click)
+            time.sleep(1)  # Allow some time for the page to adjust
+
+            # Use JavaScript to click the element to avoid interception issues
+            driver.execute_script("arguments[0].click();", flight_to_click)
+            time.sleep(2)  # Allow time for the return flight section to load
+
+        except (NoSuchElementException, TimeoutException, ElementClickInterceptedException, WebDriverException) as e:
+            print(f"Failed to click on the departing flight element: {e}")
+            driver.quit()
+            return
+
+        # Wait for the best returning flights section to load
+        try:
+            # Locate the <h3> element
+            return_heading_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//h3[contains(@class, 'zBTtmb') and contains(@class, 'ZSxxwc')]"))
+            )
+    
+            # Locate the following <ul> element relative to the <h3> element
+            ul_element = return_heading_element.find_element(By.XPATH, "following-sibling::ul")
+
+            # Get all <li> elements within the <ul>
+            li_elements = ul_element.find_elements(By.TAG_NAME, "li")
+
+            # Create a list to store the text of each <li> element
+            return_li_texts = [li.text for li in li_elements]
+
+            # Print out the text from each return flight option
+            returning_flights_list = []
+            for idx, text in enumerate(return_li_texts):
+                temp = ""
+                temp_list = []
+                idx = 0
+                for i in text:
+                    temp = temp + i
+                    if i == '\n':
+                        temp_list.append(temp)
+                        temp = ""
+                if temp_list[6].strip() == "Nonstop":
+                    returning_flights_list.append(Flight(idx, temp_list[0].strip(), temp_list[2].strip(), temp_list[3].strip(), temp_list[4].strip(), temp_list[6].strip(), temp_list[9].strip()))
+                else:
+                    returning_flights_list.append(Flight(idx, temp_list[0].strip(), temp_list[2].strip(), temp_list[3].strip(), temp_list[4].strip(), temp_list[6].strip(), temp_list[10].strip()))
+                idx = idx + 1
+
+            for item in returning_flights_list:
+                item.print_all()
+
+        except (NoSuchElementException, TimeoutException) as e:
+            print(f"Failed to locate the return flight elements: {e}")
+            driver.quit()
+            return
 
     except (NoSuchElementException, TimeoutException) as e:
         print(f"Failed to locate the <h3> or the <ul> elements: {e}")
